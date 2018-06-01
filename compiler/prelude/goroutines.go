@@ -27,9 +27,6 @@ var $callDeferred = function(deferred, jsErr, fromPanic) {
     $callDeferred(deferred, newErr);
     return;
   }
-  if ($curGoroutine.asleep) {
-    return;
-  }
 
   $stackDepthOffset--;
   var outerPanicStackDepth = $panicStackDepth;
@@ -111,88 +108,37 @@ var $recover = function() {
 };
 var $throw = function(err) { throw err; };
 
-var $noGoroutine = { asleep: false, exit: false, deferStack: [], panicStack: [] };
-var $curGoroutine = $noGoroutine, $totalGoroutines = 0, $awakeGoroutines = 0, $checkForDeadlock = true;
+var $noGoroutine = { fun: null, asleep: false, exit: false, deferStack: [], panicStack: [] };
+var $curGoroutine = $noGoroutine;
 var $mainFinished = false;
 var $go = function(fun, args) {
-  $totalGoroutines++;
-  $awakeGoroutines++;
-  var $goroutine = function() {
-    try {
-      $curGoroutine = $goroutine;
-      var r = fun.apply(undefined, args);
-      if (r && r.$blk !== undefined) {
-        fun = function() { return r.$blk(); };
-        args = [];
-        return;
-      }
-      $goroutine.exit = true;
-    } catch (err) {
-      if (!$goroutine.exit) {
-        throw err;
-      }
-    } finally {
-      $curGoroutine = $noGoroutine;
-      if ($goroutine.exit) { /* also set by runtime.Goexit() */
-        $totalGoroutines--;
-        $goroutine.asleep = true;
-      }
-      if ($goroutine.asleep) {
-        $awakeGoroutines--;
-        if (!$mainFinished && $awakeGoroutines === 0 && $checkForDeadlock) {
-          console.error("fatal error: all goroutines are asleep - deadlock!");
-          if ($global.process !== undefined) {
-            $global.process.exit(2);
-          }
+  var $goroutine = async function() {
+    var res = fun.apply(undefined, args);
+    res.then(
+      function(r) {
+        $goroutine.exit = true;
+        $curGoroutine = $noGoroutine;
+      },
+      function(err) {
+        $curGoroutine = $noGoroutine;
+
+        if (!$goroutine.exit) {
+          throw err;
         }
-      }
-    }
+      },
+    );
   };
-  $goroutine.asleep = false;
+  $goroutine.fun = fun
   $goroutine.exit = false;
   $goroutine.deferStack = [];
   $goroutine.panicStack = [];
-  $schedule($goroutine);
-};
-
-var $scheduled = [];
-var $runScheduled = function() {
-  try {
-    var r;
-    while ((r = $scheduled.shift()) !== undefined) {
-      r();
-    }
-  } finally {
-    if ($scheduled.length > 0) {
-      setTimeout($runScheduled, 0);
-    }
-  }
-};
-
-var $schedule = function(goroutine) {
-  if (goroutine.asleep) {
-    goroutine.asleep = false;
-    $awakeGoroutines++;
-  }
-  $scheduled.push(goroutine);
-  if ($curGoroutine === $noGoroutine) {
-    $runScheduled();
-  }
+  $goroutine();
 };
 
 var $setTimeout = function(f, t) {
-  $awakeGoroutines++;
   return setTimeout(function() {
-    $awakeGoroutines--;
     f();
   }, t);
-};
-
-var $block = function() {
-  if ($curGoroutine === $noGoroutine) {
-    $throwRuntimeError("cannot block in JavaScript callback, fix by wrapping code in goroutine");
-  }
-  $curGoroutine.asleep = true;
 };
 
 var $send = function(chan, value) {
@@ -209,21 +155,19 @@ var $send = function(chan, value) {
     return;
   }
 
-  var thisGoroutine = $curGoroutine;
-  var closedDuringSend;
-  chan.$sendQueue.push(function(closed) {
-    closedDuringSend = closed;
-    $schedule(thisGoroutine);
-    return value;
-  });
-  $block();
-  return {
-    $blk: function() {
-      if (closedDuringSend) {
-        $throwRuntimeError("send on closed channel");
+  return new Promise(function(resolve, reject) {
+    chan.$sendQueue.push(function(closed) {
+      try {
+        if (closed) {
+          $throwRuntimeError("send on closed channel");
+        }
+        resolve();
+        return value;
+      } catch (error) {
+        reject(error);
       }
-    }
-  };
+    });
+  });
 };
 var $recv = function(chan) {
   var queuedSend = chan.$sendQueue.shift();
@@ -238,15 +182,11 @@ var $recv = function(chan) {
     return [chan.$elem.zero(), false];
   }
 
-  var thisGoroutine = $curGoroutine;
-  var f = { $blk: function() { return this.value; } };
-  var queueEntry = function(v) {
-    f.value = v;
-    $schedule(thisGoroutine);
-  };
-  chan.$recvQueue.push(queueEntry);
-  $block();
-  return f;
+  return new Promise(function(resolve) {
+    chan.$recvQueue.push(function(value) {
+      resolve(value);
+    });
+  });
 };
 var $close = function(chan) {
   if (chan.$closed) {
@@ -311,8 +251,6 @@ var $select = function(comms) {
   }
 
   var entries = [];
-  var thisGoroutine = $curGoroutine;
-  var f = { $blk: function() { return this.selection; } };
   var removeFromQueues = function() {
     for (var i = 0; i < entries.length; i++) {
       var entry = entries[i];
@@ -323,36 +261,35 @@ var $select = function(comms) {
       }
     }
   };
-  for (var i = 0; i < comms.length; i++) {
-    (function(i) {
-      var comm = comms[i];
-      switch (comm.length) {
-      case 1: /* recv */
-        var queueEntry = function(value) {
-          f.selection = [i, value];
-          removeFromQueues();
-          $schedule(thisGoroutine);
-        };
-        entries.push([comm[0].$recvQueue, queueEntry]);
-        comm[0].$recvQueue.push(queueEntry);
-        break;
-      case 2: /* send */
-        var queueEntry = function() {
-          if (comm[0].$closed) {
-            $throwRuntimeError("send on closed channel");
-          }
-          f.selection = [i];
-          removeFromQueues();
-          $schedule(thisGoroutine);
-          return comm[1];
-        };
-        entries.push([comm[0].$sendQueue, queueEntry]);
-        comm[0].$sendQueue.push(queueEntry);
-        break;
-      }
-    })(i);
-  }
-  $block();
-  return f;
+
+  return new Promise(function(resolve) {
+    for (var i = 0; i < comms.length; i++) {
+      (function(i) {
+        var comm = comms[i];
+        switch (comm.length) {
+        case 1: /* recv */
+          var queueEntry = function(value) {
+            removeFromQueues();
+            resolve([i, value]);
+          };
+          entries.push([comm[0].$recvQueue, queueEntry]);
+          comm[0].$recvQueue.push(queueEntry);
+          break;
+        case 2: /* send */
+          var queueEntry = function() {
+            if (comm[0].$closed) {
+              $throwRuntimeError("send on closed channel");
+            }
+            removeFromQueues();
+            resolve([i]);
+            return comm[1];
+          };
+          entries.push([comm[0].$sendQueue, queueEntry]);
+          comm[0].$sendQueue.push(queueEntry);
+          break;
+        }
+      })(i);
+    }
+  });
 };
 `

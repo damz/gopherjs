@@ -401,24 +401,24 @@ func (c *funcContext) translateExpr(expr ast.Expr) *expression {
 		case token.ADD, token.LSS, token.LEQ, token.GTR, token.GEQ:
 			return c.formatExpr("%e %t %e", e.X, e.Op, e.Y)
 		case token.LAND:
-			if c.Blocking[e.Y] {
-				skipCase := c.caseCounter
-				c.caseCounter++
-				resultVar := c.newVariable("_v")
-				c.Printf("if (!(%s)) { %s = false; $s = %d; continue s; }", c.translateExpr(e.X), resultVar, skipCase)
-				c.Printf("%s = %s; case %d:", resultVar, c.translateExpr(e.Y), skipCase)
-				return c.formatExpr("%s", resultVar)
-			}
+			// if c.Blocking[e.Y] {
+			// 	skipCase := c.caseCounter
+			// 	c.caseCounter++
+			// 	resultVar := c.newVariable("_v")
+			// 	c.Printf("if (!(%s)) { %s = false; $s = %d; continue s; }", c.translateExpr(e.X), resultVar, skipCase)
+			// 	c.Printf("%s = %s; case %d:", resultVar, c.translateExpr(e.Y), skipCase)
+			// 	return c.formatExpr("%s", resultVar)
+			// }
 			return c.formatExpr("%e && %e", e.X, e.Y)
 		case token.LOR:
-			if c.Blocking[e.Y] {
-				skipCase := c.caseCounter
-				c.caseCounter++
-				resultVar := c.newVariable("_v")
-				c.Printf("if (%s) { %s = true; $s = %d; continue s; }", c.translateExpr(e.X), resultVar, skipCase)
-				c.Printf("%s = %s; case %d:", resultVar, c.translateExpr(e.Y), skipCase)
-				return c.formatExpr("%s", resultVar)
-			}
+			// if c.Blocking[e.Y] {
+			// 	skipCase := c.caseCounter
+			// 	c.caseCounter++
+			// 	resultVar := c.newVariable("_v")
+			// 	c.Printf("if (%s) { %s = true; $s = %d; continue s; }", c.translateExpr(e.X), resultVar, skipCase)
+			// 	c.Printf("%s = %s; case %d:", resultVar, c.translateExpr(e.Y), skipCase)
+			// 	return c.formatExpr("%s", resultVar)
+			// }
 			return c.formatExpr("%e || %e", e.X, e.Y)
 		case token.EQL:
 			switch u := t.Underlying().(type) {
@@ -768,17 +768,18 @@ func (c *funcContext) translateExpr(expr ast.Expr) *expression {
 func (c *funcContext) translateCall(e *ast.CallExpr, sig *types.Signature, fun *expression) *expression {
 	args := c.translateArgs(sig, e.Args, e.Ellipsis.IsValid())
 	if c.Blocking[e] {
-		resumeCase := c.caseCounter
-		c.caseCounter++
-		returnVar := "$r"
-		if sig.Results().Len() != 0 {
-			returnVar = c.newVariable("_r")
-		}
-		c.Printf("%[1]s = %[2]s(%[3]s); /* */ $s = %[4]d; case %[4]d: if($c) { $c = false; %[1]s = %[1]s.$blk(); } if (%[1]s && %[1]s.$blk !== undefined) { break s; }", returnVar, fun, strings.Join(args, ", "), resumeCase)
-		if sig.Results().Len() != 0 {
-			return c.formatExpr("%s", returnVar)
-		}
-		return c.formatExpr("")
+		// resumeCase := c.caseCounter
+		// c.caseCounter++
+		// returnVar := "$r"
+		// if sig.Results().Len() != 0 {
+		// 	returnVar = c.newVariable("_r")
+		// }
+		// c.Printf("%[1]s = %[2]s(%[3]s); /* */ $s = %[4]d; case %[4]d: if($c) { $c = false; %[1]s = %[1]s.$blk(); } if (%[1]s && %[1]s.$blk !== undefined) { break s; }", returnVar, fun, strings.Join(args, ", "), resumeCase)
+		// if sig.Results().Len() != 0 {
+		// 	return c.formatExpr("%s", returnVar)
+		// }
+		// return c.formatExpr("")
+		return c.formatExpr("(await %s(%s))", fun, strings.Join(args, ", "))
 	}
 	return c.formatExpr("%s(%s)", fun, strings.Join(args, ", "))
 }

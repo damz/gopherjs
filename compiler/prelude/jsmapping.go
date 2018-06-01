@@ -144,7 +144,6 @@ var $externalizeFunction = function(v, t, passThis) {
     return null;
   }
   if (v.$externalizeWrapper === undefined) {
-    $checkForDeadlock = false;
     v.$externalizeWrapper = function() {
       var args = [];
       for (var i = 0; i < t.params.length; i++) {

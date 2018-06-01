@@ -457,13 +457,13 @@ func (c *funcContext) translateStmt(stmt ast.Stmt, label *types.Label) {
 		var channels []string
 		var caseClauses []*ast.CaseClause
 		flattened := false
-		hasDefault := false
+		// hasDefault := false
 		for i, cc := range s.Body.List {
 			clause := cc.(*ast.CommClause)
 			switch comm := clause.Comm.(type) {
 			case nil:
 				channels = append(channels, "[]")
-				hasDefault = true
+				// hasDefault = true
 			case *ast.ExprStmt:
 				channels = append(channels, c.formatExpr("[%e]", astutil.RemoveParens(comm.X).(*ast.UnaryExpr).X).String())
 			case *ast.AssignStmt:
@@ -500,7 +500,7 @@ func (c *funcContext) translateStmt(stmt ast.Stmt, label *types.Label) {
 			Fun:  c.newIdent("$select", types.NewSignature(nil, types.NewTuple(types.NewVar(0, nil, "", types.NewInterface(nil, nil))), types.NewTuple(types.NewVar(0, nil, "", types.Typ[types.Int])), false)),
 			Args: []ast.Expr{c.newIdent(fmt.Sprintf("[%s]", strings.Join(channels, ", ")), types.NewInterface(nil, nil))},
 		}, types.Typ[types.Int])
-		c.Blocking[selectCall] = !hasDefault
+		c.Blocking[selectCall] = true
 		c.Printf("%s = %s;", selectionVar, c.translateExpr(selectCall))
 
 		if len(caseClauses) != 0 {

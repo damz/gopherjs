@@ -233,7 +233,7 @@ func Compile(importPath string, files []*ast.File, fileSet *token.FileSet, impor
 		id := c.newIdent(fmt.Sprintf(`%s.$init`, c.p.pkgVars[impPath]), types.NewSignature(nil, nil, nil, false))
 		call := &ast.CallExpr{Fun: id}
 		c.Blocking[call] = true
-		c.Flattened[call] = true
+		// c.Flattened[call] = true
 		importDecls = append(importDecls, &Decl{
 			Vars:     []string{c.p.pkgVars[impPath]},
 			DeclCode: []byte(fmt.Sprintf("\t%s = $packages[\"%s\"];\n", c.p.pkgVars[impPath], impPath)),
@@ -424,7 +424,7 @@ func Compile(importPath string, files []*ast.File, fileSet *token.FileSet, impor
 		}
 		if len(c.p.FuncDeclInfos[mainFunc].Blocking) != 0 {
 			c.Blocking[call] = true
-			c.Flattened[ifStmt] = true
+			// c.Flattened[ifStmt] = true
 		}
 		funcDecls = append(funcDecls, &Decl{
 			InitCode: c.CatchOutput(1, func() {
@@ -703,10 +703,10 @@ func translateFunction(typ *ast.FuncType, recv *ast.Ident, body *ast.BlockStmt, 
 	}
 
 	bodyOutput := string(c.CatchOutput(1, func() {
-		if len(c.Blocking) != 0 {
-			c.p.Scopes[body] = c.p.Scopes[typ]
-			c.handleEscapingVars(body)
-		}
+		// if len(c.Blocking) != 0 {
+		// 	c.p.Scopes[body] = c.p.Scopes[typ]
+		// 	c.handleEscapingVars(body)
+		// }
 
 		if c.sig != nil && c.sig.Results().Len() != 0 && c.sig.Results().At(0).Name() != "" {
 			c.resultNames = make([]ast.Expr, c.sig.Results().Len())
@@ -745,32 +745,32 @@ func translateFunction(typ *ast.FuncType, recv *ast.Ident, body *ast.BlockStmt, 
 	if c.HasDefer {
 		c.localVars = append(c.localVars, "$deferred")
 		suffix = " }" + suffix
-		if len(c.Blocking) != 0 {
-			suffix = " }" + suffix
-		}
+		// if len(c.Blocking) != 0 {
+		// 	suffix = " }" + suffix
+		// }
 	}
 
-	if len(c.Blocking) != 0 {
-		c.localVars = append(c.localVars, "$r")
-		if funcRef == "" {
-			funcRef = "$b"
-			functionName = " $b"
-		}
-		var stores, loads string
-		for _, v := range c.localVars {
-			loads += fmt.Sprintf("%s = $f.%s; ", v, v)
-			stores += fmt.Sprintf("$f.%s = %s; ", v, v)
-		}
-		prefix = prefix + " var $f, $c = false; if (this !== undefined && this.$blk !== undefined) { $f = this; $c = true; " + loads + "}"
-		suffix = " if ($f === undefined) { $f = { $blk: " + funcRef + " }; } " + stores + "return $f;" + suffix
-	}
+	// if len(c.Blocking) != 0 {
+	// 	c.localVars = append(c.localVars, "$r")
+	// 	if funcRef == "" {
+	// 		funcRef = "$b"
+	// 		functionName = " $b"
+	// 	}
+	// 	var stores, loads string
+	// 	for _, v := range c.localVars {
+	// 		loads += fmt.Sprintf("%s = $f.%s; ", v, v)
+	// 		stores += fmt.Sprintf("$f.%s = %s; ", v, v)
+	// 	}
+	// 	prefix = prefix + " var $f, $c = false; if (this !== undefined && this.$blk !== undefined) { $f = this; $c = true; " + loads + "}"
+	// 	suffix = " if ($f === undefined) { $f = { $blk: " + funcRef + " }; } " + stores + "return $f;" + suffix
+	// }
 
 	if c.HasDefer {
 		prefix = prefix + " var $err = null; try {"
 		deferSuffix := " } catch(err) { $err = err;"
-		if len(c.Blocking) != 0 {
-			deferSuffix += " $s = -1;"
-		}
+		// if len(c.Blocking) != 0 {
+		// 	deferSuffix += " $s = -1;"
+		// }
 		if c.resultNames == nil && c.sig.Results().Len() > 0 {
 			deferSuffix += fmt.Sprintf(" return%s;", c.translateResults(nil))
 		}
@@ -778,9 +778,9 @@ func translateFunction(typ *ast.FuncType, recv *ast.Ident, body *ast.BlockStmt, 
 		if c.resultNames != nil {
 			deferSuffix += fmt.Sprintf(" if (!$curGoroutine.asleep) { return %s; }", c.translateResults(c.resultNames))
 		}
-		if len(c.Blocking) != 0 {
-			deferSuffix += " if($curGoroutine.asleep) {"
-		}
+		// if len(c.Blocking) != 0 {
+		// 	deferSuffix += " if($curGoroutine.asleep) {"
+		// }
 		suffix = deferSuffix + suffix
 	}
 
@@ -805,5 +805,8 @@ func translateFunction(typ *ast.FuncType, recv *ast.Ident, body *ast.BlockStmt, 
 
 	c.p.escapingVars = prevEV
 
+	if len(c.Blocking) != 0 {
+		return params, fmt.Sprintf("async function%s(%s) {\n%s%s}", functionName, strings.Join(params, ", "), bodyOutput, strings.Repeat("\t", c.p.indentation))
+	}
 	return params, fmt.Sprintf("function%s(%s) {\n%s%s}", functionName, strings.Join(params, ", "), bodyOutput, strings.Repeat("\t", c.p.indentation))
 }
